@@ -41,8 +41,9 @@ export interface Receta {
 export interface Familiar {
   id: string;
   nombre: string;
-  restricciones: string[];
   activo: boolean;
+  ingredientesRestringidos: string[];
+  recetasRestringidas: string[];
 }
 
 const KEYS = {

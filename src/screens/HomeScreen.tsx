@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, TextInput
+  TouchableOpacity, TextInput, ScrollView
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 import { getFamiliares, getRecetas, Familiar, Receta, CATEGORIAS } from '../storage';
+import { colors, categoriaEmoji } from '../theme';
 
 export default function HomeScreen() {
   const [familiares, setFamiliares] = useState<Familiar[]>([]);
@@ -14,9 +17,11 @@ export default function HomeScreen() {
   const [sugerencias, setSugerencias] = useState<Receta[]>([]);
   const [buscado, setBuscado] = useState(false);
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarDatos();
+    }, [])
+  );
 
   async function cargarDatos() {
     const f = await getFamiliares();
@@ -25,27 +30,33 @@ export default function HomeScreen() {
     setRecetas(r);
   }
 
-  async function toggleFamiliar(id: string) {
-    const actualizados = familiares.map(f =>
-      f.id === id ? { ...f, activo: !f.activo } : f
+  function toggleFamiliar(id: string) {
+    setFamiliares(prev =>
+      prev.map(f => f.id === id ? { ...f, activo: !f.activo } : f)
     );
-    setFamiliares(actualizados);
   }
 
   function recomendar() {
-    const activos = familiares.filter(f => f.activo).length;
+    const activosList = familiares.filter(f => f.activo);
     const presupuestoNum = parseFloat(presupuesto) || Infinity;
 
     const filtradas = recetas.filter(r => {
-      const dentroPresupuesto = r.costoAproximado <= presupuestoNum;
-      const categoriaOk = categoria === 'Todas' || r.categoria === categoria;
-      return dentroPresupuesto && categoriaOk;
+      if (r.costoAproximado > presupuestoNum) return false;
+      if (categoria !== 'Todas' && r.categoria !== categoria) return false;
+      const recetaRestringida = activosList.some(f => f.recetasRestringidas.includes(r.id));
+      if (recetaRestringida) return false;
+      const tieneIngredienteRestringido = activosList.some(familiar =>
+        familiar.ingredientesRestringidos.some(ing =>
+          r.ingredientes.some(i => i.nombre.toLowerCase().includes(ing.toLowerCase()))
+        )
+      );
+      if (tieneIngredienteRestringido) return false;
+      return true;
     });
 
     const ordenadas = filtradas.sort((a, b) => {
-      const difA = Math.abs(a.porcionesBase - activos);
-      const difB = Math.abs(b.porcionesBase - activos);
-      return difA - difB;
+      const activos = activosList.length;
+      return Math.abs(a.porcionesBase - activos) - Math.abs(b.porcionesBase - activos);
     });
 
     setSugerencias(ordenadas);
@@ -55,96 +66,134 @@ export default function HomeScreen() {
   const activosCount = familiares.filter(f => f.activo).length;
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>¿Qué cocinamos hoy? 👵</Text>
-
-      <Text style={styles.label}>¿Quiénes comen hoy? ({activosCount} personas)</Text>
-      <FlatList
-        horizontal
-        data={familiares}
-        keyExtractor={item => item.id}
-        style={styles.familiarList}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[styles.familiarChip, item.activo && styles.familiarActivo]}
-            onPress={() => toggleFamiliar(item.id)}
-          >
-            <Text style={[styles.familiarNombre, item.activo && styles.familiarNombreActivo]}>
-              {item.nombre}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
-
-      <Text style={styles.label}>Categoría</Text>
-      <View style={styles.picker}>
-        <Picker selectedValue={categoria} onValueChange={setCategoria}>
-          <Picker.Item label="Todas" value="Todas" />
-          {CATEGORIAS.map(c => (
-            <Picker.Item key={c} label={c} value={c} />
-          ))}
-        </Picker>
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>¿Qué cocinamos hoy?</Text>
+        <Text style={styles.subtitle}>👵 Cocina de la abuela</Text>
       </View>
 
-      <Text style={styles.label}>Presupuesto máximo (opcional)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej. 200"
-        keyboardType="numeric"
-        value={presupuesto}
-        onChangeText={setPresupuesto}
-      />
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>¿Quiénes comen hoy? ({activosCount} personas)</Text>
+        <FlatList
+          horizontal
+          data={familiares}
+          keyExtractor={item => item.id}
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.chip, item.activo && styles.chipActivo]}
+              onPress={() => toggleFamiliar(item.id)}
+            >
+              <Text style={[styles.chipText, item.activo && styles.chipTextActivo]}>
+                {item.nombre}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Categoría</Text>
+        <View style={styles.picker}>
+          <Picker selectedValue={categoria} onValueChange={setCategoria}>
+            <Picker.Item label="🍴 Todas" value="Todas" />
+            {CATEGORIAS.map(c => (
+              <Picker.Item key={c} label={`${categoriaEmoji[c] || '🍽️'} ${c}`} value={c} />
+            ))}
+          </Picker>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Presupuesto máximo (opcional)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="$ ¿Cuánto tienes para gastar?"
+          keyboardType="numeric"
+          value={presupuesto}
+          onChangeText={setPresupuesto}
+          placeholderTextColor={colors.textLight}
+        />
+      </View>
 
       <TouchableOpacity style={styles.boton} onPress={recomendar}>
         <Text style={styles.botonText}>Ver sugerencias 🍽️</Text>
       </TouchableOpacity>
 
       {buscado && sugerencias.length === 0 && (
-        <Text style={styles.vacio}>No hay recetas que coincidan</Text>
+        <View style={styles.vacio}>
+          <Text style={styles.vacioEmoji}>😕</Text>
+          <Text style={styles.vacioText}>No hay recetas que coincidan</Text>
+          <Text style={styles.vacioSubtext}>Intenta con otro presupuesto o categoría</Text>
+        </View>
       )}
 
       {buscado && sugerencias.length > 0 && (
-        <>
-          <Text style={styles.subtitulo}>Sugerencias para {activosCount} personas:</Text>
-          <FlatList
-            data={sugerencias}
-            keyExtractor={item => item.id}
-            renderItem={({ item }) => (
-              <View style={styles.card}>
-                <Text style={styles.cardNombre}>{item.nombre}</Text>
-                <Text style={styles.cardInfo}>🕐 {item.tiempoPreparacion} min</Text>
-                <Text style={styles.cardInfo}>💰 ${item.costoAproximado}</Text>
-                <Text style={styles.cardInfo}>🍽️ {item.porcionesBase} porciones base</Text>
-                <View style={styles.categoriaTag}>
-                  <Text style={styles.categoriaText}>{item.categoria}</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {sugerencias.length} sugerencias para {activosCount} personas
+          </Text>
+          {sugerencias.map(item => (
+            <View key={item.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardEmoji}>{categoriaEmoji[item.categoria] || '🍽️'}</Text>
+                <View style={styles.cardHeaderText}>
+                  <Text style={styles.cardNombre}>{item.nombre}</Text>
+                  <View style={styles.categoriaTag}>
+                    <Text style={styles.categoriaText}>{item.categoria}</Text>
+                  </View>
                 </View>
               </View>
-            )}
-          />
-        </>
+              <View style={styles.cardStats}>
+                <View style={styles.stat}>
+                  <Text style={styles.statEmoji}>🕐</Text>
+                  <Text style={styles.statText}>{item.tiempoPreparacion} min</Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={styles.statEmoji}>💰</Text>
+                  <Text style={styles.statText}>${item.costoAproximado}</Text>
+                </View>
+                <View style={styles.stat}>
+                  <Text style={styles.statEmoji}>🍽️</Text>
+                  <Text style={styles.statText}>{item.porcionesBase} porc.</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 50 },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 4 },
-  familiarList: { marginBottom: 16 },
-  familiarChip: { borderWidth: 1, borderColor: '#ccc', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, backgroundColor: '#f5f5f5' },
-  familiarActivo: { backgroundColor: '#f4a522', borderColor: '#f4a522' },
-  familiarNombre: { color: '#666' },
-  familiarNombreActivo: { color: 'white', fontWeight: '600' },
-  picker: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, marginBottom: 12 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginBottom: 12 },
-  boton: { backgroundColor: '#f4a522', padding: 16, borderRadius: 8, alignItems: 'center', marginBottom: 16 },
+  container: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.primary, padding: 24, paddingTop: 60 },
+  title: { fontSize: 26, fontWeight: 'bold', color: 'white' },
+  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginTop: 4 },
+  section: { padding: 16 },
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 10 },
+  chip: { borderWidth: 1.5, borderColor: '#ccc', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8, backgroundColor: colors.card },
+  chipActivo: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.textLight, fontWeight: '500' },
+  chipTextActivo: { color: 'white', fontWeight: '700' },
+  picker: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, backgroundColor: colors.card },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, backgroundColor: colors.card, color: colors.text },
+  boton: { backgroundColor: colors.primary, margin: 16, padding: 16, borderRadius: 12, alignItems: 'center' },
   botonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-  vacio: { textAlign: 'center', color: '#999', marginTop: 24, fontSize: 16 },
-  subtitulo: { fontSize: 16, fontWeight: '600', marginBottom: 8, color: '#333' },
-  card: { backgroundColor: '#fff', padding: 16, borderRadius: 8, marginBottom: 8, elevation: 2 },
-  cardNombre: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  cardInfo: { fontSize: 14, color: '#555', marginBottom: 4 },
-  categoriaTag: { backgroundColor: '#f4a522', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start', marginTop: 8 },
-  categoriaText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  vacio: { alignItems: 'center', padding: 32 },
+  vacioEmoji: { fontSize: 48, marginBottom: 12 },
+  vacioText: { fontSize: 16, fontWeight: '600', color: colors.text },
+  vacioSubtext: { fontSize: 13, color: colors.textLight, marginTop: 4 },
+  card: { backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12, elevation: 3 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cardEmoji: { fontSize: 36, marginRight: 12 },
+  cardHeaderText: { flex: 1 },
+  cardNombre: { fontSize: 17, fontWeight: 'bold', color: colors.text },
+  categoriaTag: { backgroundColor: colors.secondary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start', marginTop: 4 },
+  categoriaText: { color: 'white', fontSize: 11, fontWeight: '600' },
+  cardStats: { flexDirection: 'row', justifyContent: 'space-around', borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 10 },
+  stat: { alignItems: 'center' },
+  statEmoji: { fontSize: 16 },
+  statText: { fontSize: 12, color: colors.textLight, marginTop: 2 },
 });
