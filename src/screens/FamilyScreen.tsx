@@ -14,6 +14,8 @@ export default function FamilyScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [familiarEditando, setFamiliarEditando] = useState<Familiar | null>(null);
   const [nuevoIngrediente, setNuevoIngrediente] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+const [sugerencias, setSugerencias] = useState<string[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,6 +122,31 @@ export default function FamilyScreen() {
     setNuevoIngrediente('');
   }
 
+  function buscarIngredientes(texto: string) {
+  setBusqueda(texto);
+  if (!texto.trim()) {
+    setSugerencias([]);
+    return;
+  }
+  const todosIngredientes = [...new Set(
+    recetas.flatMap(r => r.ingredientes.map(i => i.nombre))
+  )];
+  const filtrados = todosIngredientes.filter(i =>
+    i.toLowerCase().includes(texto.toLowerCase())
+  );
+  setSugerencias(filtrados);
+}
+
+function seleccionarIngrediente(ingrediente: string) {
+  if (!familiarEditando) return;
+  if (familiarEditando.ingredientesRestringidos.includes(ingrediente)) return;
+  setFamiliarEditando({
+    ...familiarEditando,
+    ingredientesRestringidos: [...familiarEditando.ingredientesRestringidos, ingrediente]
+  });
+  setBusqueda('');
+  setSugerencias([]);
+}
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -191,18 +218,26 @@ export default function FamilyScreen() {
           />
 
           <Text style={styles.label}>Ingredientes que no le gustan</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej. chile, cebolla..."
-              value={nuevoIngrediente}
-              onChangeText={setNuevoIngrediente}
-              placeholderTextColor={colors.textLight}
-            />
-            <TouchableOpacity style={styles.addBtn} onPress={agregarIngredienteRestringido}>
-              <Text style={styles.addBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
+<TextInput
+  style={styles.input}
+  placeholder="Buscar ingrediente..."
+  value={busqueda}
+  onChangeText={buscarIngredientes}
+  placeholderTextColor={colors.textLight}
+/>
+{sugerencias.length > 0 && (
+  <View style={styles.sugerenciasBox}>
+    {sugerencias.map(ing => (
+      <TouchableOpacity
+        key={ing}
+        style={styles.sugerenciaItem}
+        onPress={() => seleccionarIngrediente(ing)}
+      >
+        <Text style={styles.sugerenciaText}>🔍 {ing}</Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+)}
           <View style={styles.chipsRow}>
             {familiarEditando?.ingredientesRestringidos.map(ing => (
               <TouchableOpacity
@@ -281,4 +316,7 @@ const styles = StyleSheet.create({
   guardarText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
   cancelar: { padding: 16, alignItems: 'center', marginBottom: 40 },
   cancelarText: { color: colors.textLight, fontSize: 16 },
+  sugerenciasBox: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: '#ddd', marginBottom: 12, overflow: 'hidden' },
+sugerenciaItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+sugerenciaText: { fontSize: 14, color: colors.text },
 });
